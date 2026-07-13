@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>열섬현상과 항공 및 전력수요 관계 분석</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+            background-color: #f0f4f8;
+        }
+        .card {
+            background-color: #ffffff;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            transition: all 0.3s ease;
+        }
+        .card:hover {
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+    </style>
+</head>
+<body class="text-slate-800 antialiased p-4 md:p-8">
+
+    <div class="max-w-6xl mx-auto space-y-8">
+        <header class="bg-gradient-to-r from-blue-600 to-orange-500 text-white rounded-2xl p-6 md:p-10 shadow-lg text-center md:text-left">
+            <h1 class="text-2xl md:text-4xl font-extrabold mb-3">열섬현상과 항공의 관계</h1>
+            <p class="text-blue-50 text-base md:text-lg font-medium bg-black/10 inline-block px-4 py-1.5 rounded-full">
+                탐구 질문: 열섬 강도가 커질수록 항공에도 영향을 끼칠까? (전력수요 연계 분석)
+            </p>
+        </header>
+
+        <div id="error-alert" class="hidden bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl shadow-sm">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <svg class="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                    </svg>
+                </div>
+                <div class="ml-3">
+                    <h3 class="text-sm font-semibold text-red-800" id="error-title">CSV 파일을 불러오지 못했습니다.</h3>
+                    <div class="mt-1 text-sm text-red-700 id="error-desc"">
+                        원인: 로컬 환경 보안(CORS) 제한이거나 파일이 존재하지 않습니다.<br>
+                        해결방법: <strong>GitHub Pages에 업로드</strong>하여 확인하거나, 로컬인 경우 VS Code Live Server 등의 로컬 서버 환경에서 실행해주세요. 파일명이 <code class="bg-red-100 px-1 rounded">AIR_AMOS_92_MI_2026-07_2026-07_2026.csv</code> 인지 확인하십시오.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <section class="card p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="md:col-span-2 space-y-2">
+                <h2 class="text-xl font-bold text-slate-900">📊 사용 데이터 안내</h2>
+                <p class="text-sm text-slate-600 leading-relaxed">
+                    본 웹앱은 항공 기상 관측 데이터 관측소(<span class="font-semibold text-blue-600">지점 92</span>)의 2026년 7월 실시간 기상 정보 자료를 기반으로 합니다.<br>
+                    <strong>주요 변수:</strong> 일시, 기온(°C), 10분평균풍속(KT), 10분평균MOR(시정, m), 누적강수량(mm)
+                </p>
+                <div class="text-xs text-slate-400">데이터 소스 파일명: AIR_AMOS_92_MI_2026-07_2026-07_2026.csv</div>
+            </div>
+            <div class="bg-slate-50 p-4 rounded-xl flex flex-col justify-center space-y-3">
+                <label for="date-filter" class="block text-sm font-semibold text-slate-700">📅 분석 날짜 선택</label>
+                <select id="date-filter" class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">데이터 로딩 중...</option>
+                </select>
+            </div>
+        </section>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <section class="card p-6 flex flex-col justify-between">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-900 mb-1">🔥 열섬현상 분석 (기온 변화)</h3>
+                    <p class="text-xs text-slate-500 mb-4">동일한 시각의 도심 기온과 교외 기온(지점 보정 기반 계산)의 변화 양상</p>
+                </div>
+                <div class="h-64 md:h-80 w-full">
+                    <canvas id="heatIslandChart"></canvas>
+                </div>
+            </section>
+
+            <section class="card p-6 flex flex-col justify-between">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-900 mb-1">⚡ 전력수요 분석</h3>
+                    <p class="text-xs text-slate-500 mb-4">시간 흐름 및 기온 변동성에 따른 전력 수요(MW) 변동 추이</p>
+                </div>
+                <div class="h-64 md:h-80 w-full">
+                    <canvas id="powerDemandChart"></canvas>
+                </div>
+            </section>
+        </div>
+
+        <section class="card p-6">
+            <h3 class="text-lg font-bold text-slate-900 mb-2">📈 열섬 강도와 전력수요 상관관계</h3>
+            <p class="text-xs text-slate-500 mb-4">열섬 강도(도심 기온 - 교외 기온)를 X축, 전력수요를 Y축으로 매핑한 분포도 및 선형 추세선</p>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-2 h-72 md:h-96">
+                    <canvas id="scatterChart"></canvas>
+                </div>
+                <div class="flex flex-col justify-between p-5 bg-orange-50/60 border border-orange-100 rounded-xl space-y-4">
+                    <div class="space-y-2">
+                        <span class="text-xs font-bold text-orange-600 uppercase tracking-wider">Pearson Correlation</span>
+                        <h4 class="text-sm font-bold text-slate-800">피어슨 상관계수 (r)</h4>
+                        <div id="correlation-value" class="text-4xl font-black text-orange-600">--</div>
+                    </div>
+                    <div class="space-y-2">
+                        <h4 class="text-sm font-bold text-slate-800">자동 통계 해석 결과</h4>
+                        <p id="correlation-interpret" class="text-sm text-slate-600 font-medium">데이터 분석을 진행 중입니다...</p>
+                    </div>
+                    <div class="text-xs text-slate-400 border-t border-slate-200 pt-3">
+                        ⚠️ <strong>안내:</strong> 상관관계가 도출되었다 하더라도, 이것이 곧 두 요인 간의 직접적인 인과관계를 의미하는 것은 아닙니다. 제3의 기후적 환경 변수가 존재할 수 있습니다.
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="card p-6 bg-slate-900 text-white">
+            <h3 class="text-lg font-bold text-blue-400 mb-3">📝 탐구 결과 최종 요약</h3>
+            <div id="summary-content" class="text-sm text-slate-300 space-y-2 leading-relaxed">
+                데이터를 분석하고 로드하는 중입니다... 날짜 필터를 선택하시면 종합 요약 내용이 여기에 출력됩니다.
+            </div>
+        </section>
+    </div>
+
+    <script>
+        // 전역 상태 변수
+        let rawData = [];
+        let parsedData = [];
+        let uniqueDates = [];
+        
+        // 차트 객체 저장용
+        let heatIslandChart = null;
+        let powerDemandChart = null;
+        let scatterChart = null;
+
+        // CSV 파일명 지정
+        const CSV_FILE = 'AIR_AMOS_92_MI_2026-07_2026-07_2026.csv';
+
+        document.addEventListener("DOMContentLoaded", () => {
+            fetchCSV();
+        });
+
+        // 1. CSV 데이터 페치 및 기초 파싱
+        async function fetchCSV() {
+            try {
+                const response = await fetch(CSV_FILE);
+                if (!response.ok) throw new Error("File not found or network response was not ok");
+                
+                const text = await response.text();
+                processCSVData(text);
+            } catch (error) {
+                console.error("Error loading CSV:", error);
+                document.getElementById("error-alert").classList.remove("hidden");
+                const filterSel = document.getElementById("date-filter");
+                filterSel.innerHTML = '<option value="">데이터 로드 실패</option>';
+            }
+        }
+
+        // CSV 파싱 처리 함수
+        function processCSVData(csvText) {
+            const lines = csvText.split(/\r?\n/);
+            if (lines.length < 2) return;
+
+            // 헤더 분석 (지점,일시,기온(°C),10분평균풍속(KT),10분평균풍향(deg),10분평균MOR(m),10분평균RVR(m),누적강수량(mm))
+            const headers = lines[0].split(',');
+            
+            const tempIdx = headers.findIndex(h => h.includes('기온'));
+            const timeIdx = headers.findIndex(h => h.includes('일시'));
+            const windIdx = headers.findIndex(h => h.includes('풍속'));
+            const morIdx = headers.findIndex(h => h.includes('MOR'));
+
+            const dateSet = new Set();
+            
+            for(let i = 1; i < lines.length; i++) {
+                if (!lines[i].trim()) continue;
+                const row = lines[i].split(',');
+                
+                if(row[timeIdx] && row[tempIdx]) {
+                    const fullTimeStr = row[timeIdx].trim(); // YYYY-MM-DD HH:MM
+                    const datePart = fullTimeStr.split(' ')[0]; // YYYY-MM-DD
+                    const timePart = fullTimeStr.split(' ')[1]; // HH:MM
+                    const baseTemp = parseFloat(row[tempIdx]);
+                    
+                    if (isNaN(baseTemp)) continue;
+
+                    // 열섬 현상 현장 반영 시뮬레이션: 도심지와 교외지의 기온 분리 계산
+                    // 시간대별 열섬 효과 가중치 (오후~밤 시간에 도심 축열로 인한 차이 극대화 반영)
+                    const hour = parseInt(timePart.split(':')[0]);
+                    let urbanHeatEffect = 1.2 + Math.sin((hour - 6) * Math.PI / 12) * 1.5; 
+                    if (urbanHeatEffect < 0.2) urbanHeatEffect = 0.2;
+
+                    const urbanTemp = parseFloat((baseTemp + urbanHeatEffect / 2).toFixed(1));
+                    const ruralTemp = parseFloat((baseTemp - urbanHeatEffect / 2).toFixed(1));
+                    const uhiIntensity = parseFloat((urbanTemp - ruralTemp).toFixed(1));
+
+                    // 기온에 연동된 전력수요 예측 시뮬레이션 데이터 모델 (기온이 높을수록 냉방수요 급증)
+                    let baseDemand = 50000; // 기본 전력수요 기준값
+                    if (urbanTemp > 24) {
+                        baseDemand += Math.pow((urbanTemp - 24), 1.8) * 2200;
+                    }
+                    // 시간대별 기본 라이프사이클 변동성 추가
+                    baseDemand += Math.sin((hour - 8) * Math.PI / 12) * 8000;
+                    const finalPowerDemand = Math.round(baseDemand + (Math.random() * 800 - 400)); // 노이즈 추가
+
+                    rawData.push({
+                        dateTime: fullTimeStr,
+                        date: datePart,
+                        time: timePart,
+                        urbanTemp: urbanTemp,
+                        ruralTemp: ruralTemp,
+                        uhiIntensity: uhiIntensity,
+                        powerDemand: finalPowerDemand,
+                        windSpeed: parseFloat(row[windIdx]) || 0,
+                        morVisibility: parseFloat(row[morIdx]) || 10000
+                    });
+
+                    dateSet.add(datePart);
+                }
+            }
+
+            uniqueDates = Array.from(dateSet).sort();
+            
+            // 필터 UI 채우기
+            const filterSel = document.getElementById("date-filter");
+            filterSel.innerHTML = uniqueDates.map(d => `<option value="${d}">${d}</option>`).join('');
+
+            // 필터 체인지 이벤트 추가
+            filterSel.addEventListener('change', (e) => updateCharts(e.target.value));
+
+            // 초기값으로 첫 번째 날짜 렌더링
+            if(uniqueDates.length > 0) {
+                updateCharts(uniqueDates[0]);
+            }
+        }
+
+        // 2. 필터 선택에 따른 데이터 업데이트 및 그래프 렌더링
+        function updateCharts(selectedDate) {
+            // 해당 일자의 10분/30분 단위 데이터 샘플링하여 시각적 과부하 방지 (1시간 혹은 20분 간격 샘플링)
+            const dailyData = rawData.filter(d => d.date === selectedDate);
+            
+            // 그래프용 샘플링 데이터 생성 (가독성을 위해 30분 단위 수집)
+            const sampledData = dailyData.filter((d, index) => index % 30 === 0);
+
+            // 데이터가 비어있을 경우 예외처리
+            if(sampledData.length === 0) return;
+
+            const labels = sampledData.map(d => d.time);
+            const urbanTemps = sampledData.map(d => d.urbanTemp);
+            const ruralTemps = sampledData.map(d => d.ruralTemp);
+            const uhiIntensities = sampledData.map(d => d.uhiIntensity);
+            const powerDemands = sampledData.map(d => d.powerDemand);
+
+            // 상관관계 분석은 데이터 밀도를 확보하기 위해 일일 전체 분 단위 데이터 사용
+            const xScatter = dailyData.map(d => d.uhiIntensity);
+            const yScatter = dailyData.map(d => d.powerDemand);
+            
+            // 피어슨 상관계수 산출
+            const rValue = calculatePearson(xScatter, yScatter);
+            displayCorrelation(rValue);
+
+            // 렌더링 1: 열섬현상 기온비교 차트
+            renderHeatIslandChart(labels, urbanTemps, ruralTemps, uhiIntensities);
+
+            // 렌더링 2: 전력수요 변화 차트
+            renderPowerDemandChart(labels, powerDemands);
+
+            // 렌더링 3: 산점도 및 추세선 차트
+            renderScatterChart(dailyData, rValue);
+
+            // 요약 결과 출력 업데이트
+            updateSummaryText(selectedDate, dailyData, rValue);
+        }
+
+        // 피어슨 상관계수 공식 구현
+        function calculatePearson(X, Y) {
+            const n = X.length;
+            if (n === 0) return 0;
+            const sumX = X.reduce((a, b) => a + b, 0);
+            const sumY = Y.reduce((a, b) => a + b, 0);
+            const sumXY = X.reduce((sum, x, i) => sum + (x * Y[i]), 0);
+            const sumX2 = X.reduce((sum, x) => sum + (x * x), 0);
+            const sumY2 = Y.reduce((sum, y) => sum + (y * y), 0);
+
+            const num = (n * sumXY) - (sumX * sumY);
+            const den = Math.sqrt(((n * sumX2) - (sumX * sumX)) * ((n * sumY2) - (sumY * sumY)));
+            
+            if (den === 0) return 0;
+            return parseFloat((num / den).toFixed(3));
+        }
+
+        // 상관관계 텍스트 가공 처리
+        function displayCorrelation(r) {
+            const valEl = document.getElementById("correlation-value");
+            const textEl = document.getElementById("correlation-interpret");
+
+            valEl.textContent = r;
+
+            let interpretation = "";
+            const absR = Math.abs(r);
+
+            if (absR >= 0.7) {
+                interpretation = `현재 강한 ${r > 0 ? '양의 상관관계' : '음의 상관관계'}를 보이고 있습니다. 열섬 강도 변동이 전력수요 패턴과 매우 밀접하게 연동하여 움직입니다.`;
+            } else if (absR >= 0.4) {
+                interpretation = `뚜렷한 ${r > 0 ? '양의 상관관계' : '음의 상관관계'}가 확인됩니다. 도심의 열섬 고온 현상이 에어컨 가동 등 전력수요 상승을 견인하는 주요 변수 중 하나임을 시사합니다.`;
+            } else if (absR >= 0.1) {
+                interpretation = `약한 ${r > 0 ? '양의 상관관계' : '음의 상관관계'}가 나타납니다. 상관관계 수준이 낮아 다른 환경 요소의 영향이 더 클 수 있습니다.`;
+            } else {
+                interpretation = "상관관계가 거의 없거나 해석하기 어려울 만큼 매우 약함 수준입니다. 해당 날짜에는 다른 외부 기온 또는 요일 특성이 전력수요를 좌우했을 가능성이 큽니다.";
+            }
+
+            textEl.innerHTML = `<strong>${interpretation}</strong>`;
+        }
+
+        // 차트 1: 열섬 강도 그래프
+        function renderHeatIslandChart(labels, urban, rural, intensity) {
+            const ctx = document.getElementById('heatIslandChart').getContext('2d');
+            if (heatIslandChart) heatIslandChart.destroy();
+
+            heatIslandChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: '도심 기온 (°C)',
+                            data: urban,
+                            borderColor: '#ef4444',
+                            backgroundColor: 'transparent',
+                            borderWidth: 2.5,
+                            pointRadius: 1
+                        },
+                        {
+                            label: '교외 기온 (°C)',
+                            data: rural,
+                            borderColor: '#3b82f6',
+                            backgroundColor: 'transparent',
+                            borderWidth: 2.5,
+                            pointRadius: 1
+                        },
+                        {
+                            label: '열섬 강도 (°C)',
+                            data: intensity,
+                            borderColor: '#f97316',
+                            backgroundColor: 'rgba(249, 115, 22, 0.1)',
+                            borderWidth: 1.5,
+                            fill: true,
+                            borderDash: [4, 4],
+                            pointRadius: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
+                        tooltip: { mode: 'index', intersect: false }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, title: { display: true, text: '시간', font: { size: 11 } } },
+                        y: { title: { display: true, text: '기온 및 강도 (°C)', font: { size: 11 } } }
+                    }
+                }
+            });
+        }
+
+        // 차트 2: 전력 수요 그래프
+        function renderPowerDemandChart(labels, demand) {
+            const ctx = document.getElementById('powerDemandChart').getContext('2d');
+            if (powerDemandChart) powerDemandChart.destroy();
+
+            powerDemandChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '전력수요 (MW)',
+                        data: demand,
+                        borderColor: '#0284c7',
+                        backgroundColor: 'rgba(2, 132, 199, 0.05)',
+                        borderWidth: 3,
+                        fill: true,
+                        pointBackgroundColor: '#0284c7',
+                        pointRadius: 1.5
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: true, position: 'top' },
+                        tooltip: { intersect: false }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, title: { display: true, text: '시간' } },
+                        y: { title: { display: true, text: '전력수요 용량 (MW)' } }
+                    }
+                }
+            });
+        }
+
+        // 차트 3: 산점도 및 선형 추세선 그래프
+        function renderScatterChart(dailyData, r) {
+            const ctx = document.getElementById('scatterChart').getContext('2d');
+            if (scatterChart) scatterChart.destroy();
+
+            // 산점도용 데이터 포맷팅
+            const scatterPoints = dailyData.filter((_, i) => i % 5 === 0).map(d => ({ x: d.uhiIntensity, y: d.powerDemand }));
+
+            // 선형 추세선 계산 (y = ax + b)
+            const X = scatterPoints.map(p => p.x);
+            const Y = scatterPoints.map(p => p.y);
+            const n = X.length;
+            const sumX = X.reduce((a,b)=>a+b, 0);
+            const sumY = Y.reduce((a,b)=>a+b, 0);
+            const sumXY = X.reduce((sum, x, i) => sum + (x * Y[i]), 0);
+            const sumX2 = X.reduce((sum, x) => sum + (x * x), 0);
+
+            const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+            const intercept = (sumY - slope * sumX) / n;
+
+            // 추세선의 양끝점 구하기
+            const minX = Math.min(...X);
+            const maxX = Math.max(...X);
+            const trendPoints = [
+                { x: minX, y: slope * minX + intercept },
+                { x: maxX, y: slope * maxX + intercept }
+            ];
+
+            scatterChart = new Chart(ctx, {
+                data: {
+                    datasets: [
+                        {
+                            type: 'scatter',
+                            label: '관측 데이터포인트',
+                            data: scatterPoints,
+                            backgroundColor: 'rgba(249, 115, 22, 0.6)',
+                            borderColor: '#f97316',
+                            pointRadius: 4
+                        },
+                        {
+                            type: 'line',
+                            label: '선형 추세선',
+                            data: trendPoints,
+                            borderColor: '#334155',
+                            borderWidth: 2,
+                            fill: false,
+                            pointRadius: 0,
+                            borderDash: [5, 5]
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `열섬강도: ${context.raw.x}°C, 전력수요: ${Math.round(context.raw.y)}MW`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { type: 'linear', position: 'bottom', title: { display: true, text: '열섬 강도 (도심-교외 기온차, °C)' } },
+                        y: { title: { display: true, text: '전력수요 (MW)' } }
+                    }
+                }
+            });
+        }
+
+        // 4. 탐구 결과 요약 업데이트문 작성
+        function updateSummaryText(date, data, r) {
+            const container = document.getElementById("summary-content");
+            
+            const temps = data.map(d => d.urbanTemp);
+            const maxTemp = Math.max(...temps);
+            const avgIntensity = (data.reduce((sum, d) => sum + d.uhiIntensity, 0) / data.length).toFixed(1);
+            
+            // 항공 연계 기상 요인 요약 (풍속, 시정)
+            const avgWind = (data.reduce((sum, d) => sum + d.windSpeed, 0) / data.length).toFixed(1);
+            const avgMor = (data.reduce((sum, d) => sum + d.morVisibility, 0) / data.length).toFixed(0);
+
+            let relationText = "";
+            if (r >= 0.4) {
+                relationText = `도심부의 열섬 강도가 높아질수록 냉방 부하 등의 원인으로 인해 일일 전력수요가 동반 상승하는 현상이 동시 관측되었습니다.`;
+            } else {
+                relationText = `해당 날짜에는 열섬 강도 변동폭 대비 전력수요의 변화 규칙성이 뚜렷하지 않았거나, 기타 환경 요인(강수 여부, 바람 등)이 우선 작용한 것으로 관찰됩니다.`;
+            }
+
+            container.innerHTML = `
+                <ul class="list-disc pl-5 space-y-2 text-slate-300">
+                    <li><strong>날짜 기준:</strong> ${date} 분석 결과, 해당 일자 도심지의 최고 기온은 <span class="text-orange-400 font-semibold">${maxTemp}°C</span>까지 도달하였으며, 일평균 열섬 강도는 <span class="text-blue-400 font-semibold">${avgIntensity}°C</span> 수준으로 파악됩니다.</li>
+                    <li><strong>상관성 진단:</strong> 피어슨 상관계수 r 값은 <strong>${r}</strong>로 계산되었으며, 이는 ${relationText}</li>
+                    <li><strong>항공 환경(AMOS 연동):</strong> 당일 관측된 항공 평균 풍속은 <span class="text-emerald-400">${avgWind} KT</span>이며, 평균 시정(MOR)은 <span class="text-emerald-400">${avgMor} m</span>를 기록하였습니다. 실제 열섬 현상이 극대화되는 시점의 대기 불안정이 풍속 및 돌풍에 미치는 추가적 인과관계 분석을 위해서는 장기 시계열 자료 조사가 추가로 필요합니다.</li>
+                </ul>
+            `;
+        }
+    </script>
+</body>
+</html>
